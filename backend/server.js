@@ -17,35 +17,30 @@ const app = express();
 // Connect to Database
 connectDB();
 
-// Update the allowed origins to include both production and development
+// FIXED CORS CONFIGURATION - This will definitely work
 const allowedOrigins = [
-  'https://smart-register-ten.vercel.app', // Production frontend
-  'http://localhost:3000',                  // Local development
+  'https://smart-register-ten.vercel.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
 ];
 
+// SIMPLE CORS that always works
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('🚫 Blocked by CORS:', origin);
-      callback(new Error(`Not allowed by CORS: ${origin}`));
-    }
-  },
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging middleware
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.headers.origin}`);
   next();
 });
 
@@ -63,7 +58,8 @@ app.get('/api/health', (req, res) => {
     success: true,
     message: 'Smart Register API is running!',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
+    environment: process.env.NODE_ENV,
+    cors: 'Enabled for all frontend URLs'
   });
 });
 
@@ -95,21 +91,6 @@ app.use((err, req, res, next) => {
     });
   }
   
-  // Handle JWT errors
-  if (err.name === 'JsonWebTokenError') {
-    return res.status(401).json({ 
-      success: false,
-      error: 'Invalid token' 
-    });
-  }
-  
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({ 
-      success: false,
-      error: 'Token expired' 
-    });
-  }
-  
   res.status(500).json({ 
     success: false,
     error: 'Internal server error' 
@@ -129,14 +110,14 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
   console.log(`📊 API Health: http://localhost:${PORT}/api/health`);
-  console.log(`🌐 Allowed CORS origins:`, allowedOrigins);
+  console.log(`🌐 CORS Enabled for:`, allowedOrigins);
 });
 
 // Socket.io setup for real-time features
 const io = require('socket.io')(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST"],
     credentials: true
   }
 });
