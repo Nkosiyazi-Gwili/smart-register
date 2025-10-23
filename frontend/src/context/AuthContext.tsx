@@ -2,6 +2,8 @@
 import { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 
+axios.defaults.baseURL = 'https://smart-register-backend.vercel.app/api';
+
 interface User {
   id: string;
   employeeId: string;
