@@ -1,318 +1,385 @@
+// components/AttendanceClock.tsx
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import axios from 'axios';
+import { useToast } from './ui/Toast';
 
-interface Attendance {
-  _id: string;
-  date: string;
-  clockIn?: {
-    time: string;
-    location: any;
-    verified: boolean;
-  };
-  clockOut?: {
-    time: string;
-    location: any;
-    verified: boolean;
-  };
-  status: string;
-  totalHours: number;
+interface AttendanceRecord {
+  id: string;
+  type: 'in' | 'out';
+  timestamp: Date;
+  location: string;
+  selfie: string;
+  status: 'pending' | 'approved' | 'rejected';
+  coordinates: { lat: number; lng: number };
 }
 
+// Helper function to calculate distance between two coordinates in meters
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
 export default function AttendanceClock() {
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [attendanceStatus, setAttendanceStatus] = useState<'in' | 'out'>('out');
+  const [isTakingSelfie, setIsTakingSelfie] = useState(false);
+  const [punchHistory, setPunchHistory] = useState<AttendanceRecord[]>([]);
+  const [location, setLocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
+  const [isWithinRadius, setIsWithinRadius] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { addToast } = useToast();
   const { user } = useAuth();
-  const [attendance, setAttendance] = useState<Attendance | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
     getCurrentLocation();
-    fetchTodayAttendance();
-  }, []);
+
+    return () => clearInterval(timer);
+  }, [user]);
 
   const getCurrentLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude
-          });
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          
+          // Check if within company radius
+          if (user?.company) {
+            const distance = calculateDistance(
+              latitude, 
+              longitude, 
+              user.company.latitude, 
+              user.company.longitude
+            );
+            
+            const withinRadius = distance <= (user.company.radius || 50); // Default 50 meters
+            setIsWithinRadius(withinRadius);
+            
+            // Get address from coordinates (mock for demo)
+            const address = await reverseGeocode(latitude, longitude);
+            
+            setLocation({
+              lat: latitude,
+              lng: longitude,
+              address: address
+            });
+
+            if (!withinRadius) {
+              addToast(`You are ${Math.round(distance)}m away from workplace. Must be within ${user.company.radius}m`, 'warning');
+            }
+          }
         },
         (error) => {
-          setError('Location access is required for attendance tracking. Please enable location services.');
+          console.error('Error getting location:', error);
+          addToast('Unable to get your location', 'warning');
         },
-        { 
+        {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 0
+          maximumAge: 60000
         }
       );
-    } else {
-      setError('Geolocation is not supported by this browser.');
     }
   };
 
-  const fetchTodayAttendance = async () => {
+  const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+    // Mock reverse geocoding - in real app, use Google Maps API or similar
+    if (user?.company && calculateDistance(lat, lng, user.company.latitude, user.company.longitude) <= (user.company.radius || 50)) {
+      return user.company.address;
+    }
+    return `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  };
+
+  const startCamera = async () => {
     try {
-      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/attendance/today`);
-      setAttendance(response.data.attendance);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
     } catch (error) {
-      console.error('Error fetching attendance:', error);
+      console.error('Error accessing camera:', error);
+      addToast('Camera access denied. Please allow camera permissions.', 'error');
+      setIsTakingSelfie(false);
     }
   };
 
-  const handleClockIn = async () => {
-    if (!location) {
-      setError('Please enable location services and allow location access.');
+  const captureSelfie = (): Promise<string> => {
+    return new Promise((resolve) => {
+      if (videoRef.current && canvasRef.current) {
+        const context = canvasRef.current.getContext('2d');
+        if (context) {
+          canvasRef.current.width = videoRef.current.videoWidth;
+          canvasRef.current.height = videoRef.current.videoHeight;
+          context.drawImage(videoRef.current, 0, 0);
+          const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
+          resolve(imageData);
+        }
+      }
+      resolve('');
+    });
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const handlePunch = async () => {
+    if (!isWithinRadius && user?.company) {
+      addToast(`You must be within ${user.company.radius}m of workplace to check in/out`, 'error');
       return;
     }
 
-    setLoading(true);
-    setError('');
-    setSuccess('');
+    if (!location) {
+      addToast('Unable to verify your location', 'error');
+      return;
+    }
 
+    setIsTakingSelfie(true);
+    await startCamera();
+  };
+
+  const confirmSelfie = async () => {
     try {
-      // In a real app, you would capture a selfie here
-      const selfie = 'selfie_data_placeholder';
-      
-      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/attendance/clock-in`, {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        selfie,
-        notes: 'Clock in from web app'
-      });
+      const selfie = await captureSelfie();
+      stopCamera();
 
-      setAttendance(response.data.attendance);
-      setSuccess('Clock in successful! Welcome to work.');
+      const newPunch: AttendanceRecord = {
+        id: Date.now().toString(),
+        type: attendanceStatus === 'out' ? 'in' : 'out',
+        timestamp: new Date(),
+        location: location?.address || 'Unknown Location',
+        selfie: selfie,
+        status: 'pending',
+        coordinates: { lat: location!.lat, lng: location!.lng }
+      };
+
+      setPunchHistory(prev => [newPunch, ...prev]);
+      setAttendanceStatus(attendanceStatus === 'out' ? 'in' : 'out');
+      setIsTakingSelfie(false);
       
-      // Refresh attendance data
-      fetchTodayAttendance();
-    } catch (error: any) {
-      setError(error.response?.data?.error || 'Clock in failed. Please try again.');
-    } finally {
-      setLoading(false);
+      addToast(`Successfully checked ${newPunch.type} at ${newPunch.timestamp.toLocaleTimeString()}`, 'success');
+    } catch (error) {
+      addToast('Failed to capture selfie', 'error');
+      setIsTakingSelfie(false);
     }
   };
 
-  const handleClockOut = async () => {
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      const selfie = 'selfie_data_placeholder';
-      
-      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/attendance/clock-out`, {
-        latitude: location?.latitude || 0,
-        longitude: location?.longitude || 0,
-        selfie,
-        notes: 'Clock out from web app'
-      });
-
-      setAttendance(response.data.attendance);
-      setSuccess('Clock out successful! Have a great day.');
-      
-      // Refresh attendance data
-      fetchTodayAttendance();
-    } catch (error: any) {
-      setError(error.response?.data?.error || 'Clock out failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const canClockIn = !attendance?.clockIn?.time;
-  const canClockOut = attendance?.clockIn?.time && !attendance?.clockOut?.time;
-  const currentStatus = attendance?.status || 'absent';
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'present': return 'text-green-600 bg-green-100';
-      case 'late': return 'text-orange-600 bg-orange-100';
-      case 'absent': return 'text-red-600 bg-red-100';
-      default: return 'text-gray-600 bg-gray-100';
-    }
+  const cancelSelfie = () => {
+    stopCamera();
+    setIsTakingSelfie(false);
+    addToast('Selfie capture cancelled', 'info');
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="card">
-        <h2 className="text-2xl font-bold text-center mb-6">Attendance Clock</h2>
+    <div className="space-y-6">
+      {/* Selfie Modal */}
+      {isTakingSelfie && (
+        <div className="fixed inset-0 bg-black z-50 flex flex-col safe-area-inset">
+          <div className="flex-1 relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
+            <canvas ref={canvasRef} className="hidden" />
+            
+            {/* Camera overlay */}
+            <div className="absolute inset-0 flex flex-col justify-between p-4">
+              <div className="flex justify-between items-start">
+                <button
+                  onClick={cancelSelfie}
+                  className="bg-black/50 text-white p-3 rounded-full"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="text-center text-white">
+                <p className="text-lg font-semibold mb-2">
+                  {attendanceStatus === 'out' ? 'Check In' : 'Check Out'}
+                </p>
+                <p className="text-sm opacity-90">Position your face in the frame</p>
+              </div>
+              
+              <div className="flex justify-center">
+                <button
+                  onClick={confirmSelfie}
+                  className="bg-white rounded-full p-4 shadow-lg active:scale-95 transition-transform"
+                >
+                  <div className="w-16 h-16 bg-red-500 rounded-full border-4 border-white"></div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Current Time Card */}
+      <div className="card text-center">
+        <div className="text-sm text-gray-600 mb-2">Current Time</div>
+        <div className="text-3xl font-mono font-bold text-gray-900 mb-2">
+          {currentTime.toLocaleTimeString('en-US', { 
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })}
+        </div>
+        <div className="text-sm text-gray-600">
+          {currentTime.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })}
+        </div>
+      </div>
+
+      {/* Location Status */}
+      {user?.company && (
+        <div className={`card ${isWithinRadius ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className={`w-3 h-3 rounded-full ${isWithinRadius ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <div>
+                <p className="font-medium">
+                  {isWithinRadius ? 'Within Work Area' : 'Outside Work Area'}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {user.company.name} • Radius: {user.company.radius}m
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={getCurrentLocation}
+              className="p-2 text-gray-500 hover:text-gray-700"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Punch Button */}
+      <div className="card text-center">
+        <button
+          onClick={handlePunch}
+          disabled={!isWithinRadius}
+          className={`w-full py-4 px-6 rounded-xl font-bold text-white text-lg transition-all active:scale-95 ${
+            attendanceStatus === 'out' 
+              ? 'bg-green-600 hover:bg-green-700' 
+              : 'bg-red-600 hover:bg-red-700'
+          } ${!isWithinRadius ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {attendanceStatus === 'out' ? 'Check In' : 'Check Out'}
+        </button>
+        <p className="text-sm text-gray-600 mt-3">
+          You are currently <span className="font-semibold">{attendanceStatus === 'out' ? 'checked out' : 'checked in'}</span>
+        </p>
         
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
-            <div className="flex items-center">
-              <svg className="h-5 w-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+        {location && (
+          <div className="mt-3 p-3 bg-blue-50 rounded-lg text-left">
+            <div className="flex items-center text-sm text-blue-700">
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              {error}
+              <span>{location.address}</span>
             </div>
           </div>
         )}
+      </div>
 
-        {success && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md mb-6">
-            <div className="flex items-center">
-              <svg className="h-5 w-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              {success}
+      {/* Today's Summary */}
+      <div className="card">
+        <h3 className="text-lg font-semibold mb-4">Today's Summary</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="text-center p-4 bg-blue-50 rounded-lg">
+            <div className="text-2xl font-bold text-blue-600">
+              {punchHistory.find(p => p.type === 'in')?.timestamp.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+              }) || '--:--'}
             </div>
+            <div className="text-sm text-gray-600">Check In</div>
           </div>
-        )}
-
-        <div className="text-center mb-8">
-          <div className="text-6xl font-mono font-bold text-gray-800 mb-4">
-            {new Date().toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit',
-              second: '2-digit',
-              hour12: true 
-            })}
-          </div>
-          <div className="text-lg text-gray-600 mb-2">
-            {new Date().toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            })}
-          </div>
-          <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(currentStatus)}`}>
-            Status: {currentStatus.toUpperCase()}
+          <div className="text-center p-4 bg-orange-50 rounded-lg">
+            <div className="text-2xl font-bold text-orange-600">
+              {punchHistory.find(p => p.type === 'out')?.timestamp.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+              }) || '--:--'}
+            </div>
+            <div className="text-sm text-gray-600">Check Out</div>
           </div>
         </div>
+      </div>
 
-        <div className="space-y-4">
-          <button
-            onClick={handleClockIn}
-            disabled={!canClockIn || loading || !location}
-            className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
-              canClockIn 
-                ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5' 
-                : 'bg-gray-400 text-gray-200 cursor-not-allowed'
-            }`}
-          >
-            {loading ? (
-              <span className="flex items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Processing...
-              </span>
-            ) : (
-              <span className="flex items-center justify-center">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Clock In
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={handleClockOut}
-            disabled={!canClockOut || loading || !location}
-            className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
-              canClockOut 
-                ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5' 
-                : 'bg-gray-400 text-gray-200 cursor-not-allowed'
-            }`}
-          >
-            {loading ? (
-              <span className="flex items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Processing...
-              </span>
-            ) : (
-              <span className="flex items-center justify-center">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Clock Out
-              </span>
-            )}
-          </button>
+      {/* Recent Activity */}
+      <div className="card">
+        <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
+        <div className="space-y-3">
+          {punchHistory.slice(0, 5).map((punch) => (
+            <div key={punch.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <div className={`w-2 h-2 rounded-full ${
+                  punch.type === 'in' ? 'bg-green-500' : 'bg-red-500'
+                }`}></div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium capitalize">{punch.type}</span>
+                  {punch.selfie && (
+                    <img 
+                      src={punch.selfie} 
+                      alt="Selfie" 
+                      className="w-6 h-6 rounded-full object-cover border"
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm text-gray-600">
+                  {punch.timestamp.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </div>
+                <div className="text-xs text-gray-500">{punch.location}</div>
+              </div>
+            </div>
+          ))}
+          {punchHistory.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No attendance records yet
+            </div>
+          )}
         </div>
-
-        {attendance && (
-          <div className="mt-8 p-6 bg-gray-50 rounded-lg border">
-            <h3 className="font-semibold text-lg mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              Today's Attendance Record
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Clock In:</span>
-                  <span className="font-medium">
-                    {attendance.clockIn?.time 
-                      ? new Date(attendance.clockIn.time).toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: true
-                        })
-                      : '--:--'
-                    }
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Clock Out:</span>
-                  <span className="font-medium">
-                    {attendance.clockOut?.time 
-                      ? new Date(attendance.clockOut.time).toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: true
-                        })
-                      : '--:--'
-                    }
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total Hours:</span>
-                  <span className="font-medium">
-                    {attendance.totalHours > 0 
-                      ? `${attendance.totalHours.toFixed(2)} hrs`
-                      : '--'
-                    }
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Location Verified:</span>
-                  <span className={`font-medium ${attendance.clockIn?.verified ? 'text-green-600' : 'text-orange-600'}`}>
-                    {attendance.clockIn?.verified ? 'Yes' : 'Pending'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {!location && (
-          <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
-            <div className="flex items-center">
-              <svg className="h-5 w-5 text-yellow-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <span className="text-yellow-700 text-sm">
-                Location services are required for attendance tracking. Please allow location access.
-              </span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

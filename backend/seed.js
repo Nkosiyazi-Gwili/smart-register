@@ -24,7 +24,7 @@ const seedData = async () => {
       website: 'https://techsolutions.com',
       locations: [{
         name: 'Main Office',
-        address: '123 Business District, Tech City, TC 12345',
+        address: '267 Market Street, Witkoppen Rd, Noordhang, Randburg, 2188',
         coordinates: {
           latitude: 40.7128,
           longitude: -74.0060
