@@ -17,24 +17,27 @@ const app = express();
 // Connect to Database
 connectDB();
 
-// Middleware
+// Update the allowed origins to include both production and development
 const allowedOrigins = [
-  'https://smart-register-ten.vercel.app',
-  'http://localhost:3000' // Keep for local development
+  'https://smart-register-ten.vercel.app', // Production frontend
+  'http://localhost:3000',                  // Local development
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
+    
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      console.log('Blocked by CORS:', origin);
-      callback(new Error('Not allowed by CORS'));
+      console.log('🚫 Blocked by CORS:', origin);
+      callback(new Error(`Not allowed by CORS: ${origin}`));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -68,6 +71,14 @@ app.get('/api/health', (req, res) => {
 app.use((err, req, res, next) => {
   console.error('Error stack:', err.stack);
   
+  // Handle CORS errors specifically
+  if (err.message && err.message.includes('CORS')) {
+    return res.status(403).json({ 
+      success: false,
+      error: 'CORS Error: Origin not allowed'
+    });
+  }
+  
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors).map(val => val.message);
     return res.status(400).json({ 
@@ -81,6 +92,21 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ 
       success: false,
       error: 'Invalid ID format' 
+    });
+  }
+  
+  // Handle JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({ 
+      success: false,
+      error: 'Invalid token' 
+    });
+  }
+  
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({ 
+      success: false,
+      error: 'Token expired' 
     });
   }
   
@@ -103,16 +129,14 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
   console.log(`📊 API Health: http://localhost:${PORT}/api/health`);
+  console.log(`🌐 Allowed CORS origins:`, allowedOrigins);
 });
 
 // Socket.io setup for real-time features
 const io = require('socket.io')(server, {
   cors: {
-    origin: [
-      'https://smart-register-ten.vercel.app',
-      'http://localhost:3000'
-    ],
-    methods: ["GET", "POST"],
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   }
 });
