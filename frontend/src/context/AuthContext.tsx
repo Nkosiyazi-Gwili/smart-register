@@ -2,7 +2,8 @@
 import { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 
-axios.defaults.baseURL = 'https://smart-register-backend.vercel.app/api';
+// Use environment variable with fallback for development
+axios.defaults.baseURL = process.env.NEXT_PUBLIC_API_URL || 'https://smart-register-backend.vercel.app/api';
 
 interface User {
   id: string;
@@ -45,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = localStorage.getItem('token');
       if (token) {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`);
+        const response = await axios.get('/auth/me'); // Use relative URL
         setUser(response.data.user);
       }
     } catch (error) {
@@ -58,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (email: string, password: string): Promise<User> => {
-    const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, { 
+    const response = await axios.post('/auth/login', { // Use relative URL
       email, 
       password 
     });
