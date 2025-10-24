@@ -1,9 +1,8 @@
 // routes/auth.js
 const express = require('express');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const { auth } = require('../middleware/auth');
 const router = express.Router();
+const { auth } = require('../middleware/auth');
+const User = require('../models/User');
 
 // Login
 // routes/auth.js - Replace your login route with this
@@ -139,31 +138,31 @@ router.post('/test-simple', async (req, res) => {
 
 // Get current user
 router.get('/me', auth, async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      user: {
-        id: req.user._id,
-        employeeId: req.user.employeeId,
-        email: req.user.email,
-        firstName: req.user.firstName,
-        lastName: req.user.lastName,
-        role: req.user.role,
-        department: req.user.department,
-        company: req.user.company,
-        position: req.user.position,
-        phone: req.user.phone,
-        leaveBalance: req.user.leaveBalance
-      }
-    });
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-});
+    try {
+      // The user is already attached to req by the auth middleware
+      res.json({
+        success: true,
+        user: {
+          id: req.user._id,
+          employeeId: req.user.employeeId,
+          email: req.user.email,
+          firstName: req.user.firstName,
+          lastName: req.user.lastName,
+          role: req.user.role,
+          department: req.user.department,
+          company: req.user.company,
+          position: req.user.position,
+          phone: req.user.phone,
+          leaveBalance: req.user.leaveBalance,
+          status: req.user.status, // Make sure this is included
+          lastLogin: req.user.lastLogin
+        }
+      });
+    } catch (error) {
+      console.error('Get user error:', error);
+      res.status(500).json({ success: false, error: 'Server error' });
+    }
+  });
 
 // Update profile
 router.put('/profile', auth, async (req, res) => {

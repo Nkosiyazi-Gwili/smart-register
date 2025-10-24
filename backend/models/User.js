@@ -65,6 +65,13 @@ const userSchema = new mongoose.Schema({
     enum: ['active', 'inactive', 'suspended'],
     default: 'active'
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+    get: function() {
+      return this.status === 'active';
+    }
+  },
   lastLogin: {
     type: Date
   }
