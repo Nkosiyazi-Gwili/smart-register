@@ -55,7 +55,7 @@ export default function StatsOverview() {
   return (
     <div className="space-y-6">
       {/* Welcome Card */}
-      <div className="card bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-lg p-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold mb-2">Good morning! 👋</h2>
@@ -68,7 +68,7 @@ export default function StatsOverview() {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4">
         {statCards.map((stat, index) => (
-          <div key={index} className="card text-center p-4">
+          <div key={index} className="bg-white rounded-lg p-4 text-center shadow-sm">
             <div className="text-2xl mb-2">{stat.icon}</div>
             <div className="text-2xl font-bold text-gray-900 mb-1">
               {stat.value}
@@ -80,7 +80,7 @@ export default function StatsOverview() {
       </div>
 
       {/* Quick Actions */}
-      <div className="card">
+      <div className="bg-white rounded-lg p-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
         <div className="grid grid-cols-2 gap-3">
           <button className="p-4 bg-blue-50 rounded-lg text-blue-700 font-medium hover:bg-blue-100 transition-colors active:scale-95">

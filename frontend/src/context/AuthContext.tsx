@@ -73,11 +73,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return userData;
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    delete axios.defaults.headers.common['Authorization'];
-    setUser(null);
-  };
+  // In your AuthContext - update logout function
+    const logout = () => {
+      localStorage.removeItem('token');
+      delete axios.defaults.headers.common['Authorization'];
+      setUser(null);
+      // Redirect to login page
+      window.location.href = '/';
+    };
 
   const updateUser = (userData: Partial<User>) => {
     if (user) {
