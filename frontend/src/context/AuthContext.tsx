@@ -1,10 +1,10 @@
+// context/AuthContext.tsx
 'use client';
 import { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 
-// Use environment variable with fallback for development
-axios.defaults.baseURL = process.env.NEXT_PUBLIC_API_URL || 'https://smart-register-backend.vercel.app/api';
-
+// Use local backend for development
+axios.defaults.baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 interface User {
   id: string;
   employeeId: string;

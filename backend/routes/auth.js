@@ -1,109 +1,208 @@
+// routes/auth.js
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { loginValidation } = require('../middleware/validation');
-
+const { auth } = require('../middleware/auth');
 const router = express.Router();
 
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
-router.post('/login', loginValidation, async (req, res) => {
+// Login
+// routes/auth.js - Replace your login route with this
+router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    const user = await User.findOne({ email, isActive: true })
-      .populate('company')
-      .populate('department')
-      .select('+password');
-    
-    if (!user || !(await user.comparePassword(password))) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+
+    console.log('🔐 ===== LOGIN ATTEMPT =====');
+    console.log('📧 Email received:', email);
+    console.log('🔑 Password received length:', password ? password.length : 'none');
+    console.log('🌐 Request origin:', req.headers.origin);
+    console.log('📱 User agent:', req.headers['user-agent']);
+
+    if (!email || !password) {
+      console.log('❌ Missing email or password');
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
+      });
     }
 
-    // Update last login
-    await user.updateLastLogin();
+    // Find user
+    console.log('🔍 Searching for user in database...');
+    const user = await User.findOne({ email: email.toLowerCase().trim() })
+      .populate('department')
+      .populate('company');
 
+    if (!user) {
+      console.log('❌ USER NOT FOUND in database for email:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    console.log('✅ USER FOUND:', {
+      id: user._id,
+      email: user.email,
+      employeeId: user.employeeId,
+      role: user.role,
+      status: user.status,
+      company: user.company?.name,
+      department: user.department?.name
+    });
+
+    // Check password
+    console.log('🔑 Comparing passwords...');
+    console.log('   Input password:', password);
+    console.log('   Stored hash:', user.password.substring(0, 30) + '...');
+    
+    const isMatch = await user.comparePassword(password);
+    console.log('🔑 Password comparison result:', isMatch);
+
+    if (!isMatch) {
+      console.log('❌ PASSWORD MISMATCH');
+      console.log('   This means the password provided does not match the hash in database');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    console.log('✅ PASSWORD MATCHED');
+
+    // Check if user is active
+    if (user.status !== 'active') {
+      console.log('❌ User account is not active. Status:', user.status);
+      return res.status(401).json({
+        success: false,
+        message: 'Account is inactive'
+      });
+    }
+
+    console.log('✅ ACCOUNT IS ACTIVE');
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate token
     const token = jwt.sign(
-      { userId: user._id }, 
-      process.env.JWT_SECRET, 
-      { expiresIn: process.env.JWT_EXPIRES_IN }
+      { userId: user._id },
+      process.env.JWT_SECRET || 'fallback_secret',
+      { expiresIn: '7d' }
     );
 
-    // Remove password from response
-    const userResponse = user.toJSON();
-    delete userResponse.password;
+    console.log('🎉 LOGIN SUCCESSFUL for:', user.email);
+    console.log('🔐 Token generated');
+    console.log('===== LOGIN COMPLETE =====\n');
 
     res.json({
       success: true,
       token,
-      user: userResponse
+      user: {
+        id: user._id,
+        employeeId: user.employeeId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        department: user.department,
+        company: user.company,
+        position: user.position,
+        phone: user.phone,
+        leaveBalance: user.leaveBalance
+      }
     });
+
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Server error during login' });
+    console.error('💥 LOGIN ERROR:', error);
+    console.error('💥 Error stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
   }
 });
+// Add this to your auth routes for quick testing
+router.post('/test-simple', async (req, res) => {
+  console.log('🧪 SIMPLE TEST ENDPOINT HIT');
+  console.log('📧 Email received:', req.body.email);
+  console.log('🔑 Password received:', req.body.password ? '***' : 'none');
+  
+  res.json({
+    success: true,
+    received: {
+      email: req.body.email,
+      passwordLength: req.body.password ? req.body.password.length : 0
+    },
+    message: 'Test endpoint working'
+  });
+});
 
-// @desc    Get current user
-// @route   GET /api/auth/me
-// @access  Private
-router.get('/me', async (req, res) => {
+// Get current user
+router.get('/me', auth, async (req, res) => {
   try {
-    // This route should be protected by auth middleware
-    // For now, we'll get user from token in header
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId)
-      .populate('company')
-      .populate('department');
-
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
     res.json({
       success: true,
-      user
+      user: {
+        id: req.user._id,
+        employeeId: req.user.employeeId,
+        email: req.user.email,
+        firstName: req.user.firstName,
+        lastName: req.user.lastName,
+        role: req.user.role,
+        department: req.user.department,
+        company: req.user.company,
+        position: req.user.position,
+        phone: req.user.phone,
+        leaveBalance: req.user.leaveBalance
+      }
     });
   } catch (error) {
     console.error('Get user error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
   }
 });
 
-// @desc    Change password
-// @route   PUT /api/auth/change-password
-// @access  Private
-router.put('/change-password', async (req, res) => {
+// Update profile
+router.put('/profile', auth, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { firstName, lastName, phone, position } = req.body;
     
-    // In real implementation, this would use auth middleware
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(req.user._id);
     
-    const user = await User.findById(decoded.userId).select('+password');
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (phone) user.phone = phone;
+    if (position) user.position = position;
     
-    if (!user || !(await user.comparePassword(currentPassword))) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
-    }
-
-    user.password = newPassword;
     await user.save();
-
+    
     res.json({
       success: true,
-      message: 'Password updated successfully'
+      message: 'Profile updated successfully',
+      user: {
+        id: user._id,
+        employeeId: user.employeeId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        department: user.department,
+        company: user.company,
+        position: user.position,
+        phone: user.phone,
+        leaveBalance: user.leaveBalance
+      }
     });
+    
   } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile'
+    });
   }
 });
 
