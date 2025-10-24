@@ -1,24 +1,48 @@
+// models/Department.js
 const mongoose = require('mongoose');
 
 const departmentSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  description: { type: String, maxlength: 500 },
-  company: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Company', 
-    required: true 
+  name: {
+    type: String,
+    required: true,
+    trim: true,
+    unique: true
   },
-  manager: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User' 
+  description: {
+    type: String,
+    trim: true
   },
-  isActive: { type: Boolean, default: true }
-}, { 
-  timestamps: true 
+  manager: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: true
+  },
+  employeeCount: {
+    type: Number,
+    default: 0
+  },
+  status: {
+    type: String,
+    enum: ['active', 'inactive'],
+    default: 'active'
+  }
+}, {
+  timestamps: true
 });
 
-// Compound index for unique department names per company
-departmentSchema.index({ name: 1, company: 1 }, { unique: true });
-departmentSchema.index({ company: 1, isActive: 1 });
+// Update employee count when users are added/removed
+departmentSchema.methods.updateEmployeeCount = async function() {
+  const User = mongoose.model('User');
+  const count = await User.countDocuments({ 
+    department: this._id, 
+    status: 'active' 
+  });
+  this.employeeCount = count;
+  await this.save();
+};
 
 module.exports = mongoose.model('Department', departmentSchema);

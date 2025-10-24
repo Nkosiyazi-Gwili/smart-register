@@ -6,200 +6,323 @@ const Department = require('./models/Department');
 
 const seedData = async () => {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    // Check if MONGODB_URI is set
+    if (!process.env.MONGODB_URI) {
+      console.error('❌ MONGODB_URI environment variable is required');
+      process.exit(1);
+    }
+
+    console.log('🔗 Connecting to MongoDB...');
+    console.log(`📡 Database: ${process.env.MONGODB_URI.includes('localhost') ? 'Local' : 'Production'}`);
+    
+    await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+
     console.log('✅ Connected to MongoDB');
 
-    // Clear existing data
-    await User.deleteMany({});
-    await Company.deleteMany({});
-    await Department.deleteMany({});
+    // Clear existing data (optional - you might want to skip this in production)
+    const shouldClearData = process.argv.includes('--clear') || process.env.NODE_ENV !== 'production';
+    
+    if (shouldClearData) {
+      console.log('🗑️  Clearing existing data...');
+      await User.deleteMany({});
+      await Company.deleteMany({});
+      await Department.deleteMany({});
+      console.log('✅ Existing data cleared');
+    } else {
+      console.log('ℹ️  Skipping data clearance (use --clear flag to force clear)');
+    }
 
-    console.log('🗑️  Cleared existing data');
-
-    // Create company
-    const company = await Company.create({
-      name: 'Tech Solutions Inc',
-      email: 'admin@techsolutions.com',
-      phone: '+1 (555) 123-4567',
-      website: 'https://techsolutions.com',
-      locations: [{
-        name: 'Main Office',
+    // Check if company already exists
+    let company = await Company.findOne({ name: 'Eskilz Private FET College' });
+    
+    if (company) {
+      console.log('🏢 Company already exists, updating...');
+    } else {
+      console.log('🏢 Creating company...');
+      
+      // Create company
+      company = await Company.create({
+        name: 'Eskilz Private FET College',
         address: '267 Market Street, Witkoppen Rd, Noordhang, Randburg, 2188',
-        coordinates: {
-          latitude: 40.7128,
-          longitude: -74.0060
+        latitude: -26.038123,
+        longitude: 27.968089,
+        radius: 50,
+        contactEmail: 'admin@eskilzcollege.co.za',
+        contactPhone: '+27 10 030 0080',
+        workingHours: {
+          start: "08:00",
+          end: "16:30"
         },
-        radius: 150
-      }],
-      settings: {
-        shiftStart: "09:00",
-        shiftEnd: "17:00",
-        gracePeriod: 15,
-        autoApproveLeave: false
+        settings: {
+          requireSelfie: true,
+          requireLocation: true,
+          autoApproveAttendance: false
+        }
+      });
+
+      console.log('✅ Company created');
+    }
+
+    // Create or update departments
+    console.log('📊 Setting up departments...');
+    
+    const departmentsData = [
+      {
+        name: 'Human Resources',
+        description: 'Handles recruitment, employee relations, and HR operations'
+      },
+      {
+        name: 'IT Department', 
+        description: 'Manages technology infrastructure and software development'
+      },
+      {
+        name: 'Sales',
+        description: 'Responsible for business development and client acquisition'
+      },
+      {
+        name: 'Finance',
+        description: 'Manages company finances and accounting'
+      },
+      {
+        name: 'Academic',
+        description: 'Teaching and academic operations'
+      },
+      {
+        name: 'Administration',
+        description: 'General administration and support services'
       }
-    });
+    ];
 
-    console.log('🏢 Company created');
-
-    // Create departments
-    const hrDept = await Department.create({
-      name: 'Human Resources',
-      company: company._id,
-      description: 'Handles recruitment, employee relations, and HR operations'
-    });
-
-    const itDept = await Department.create({
-      name: 'IT Department',
-      company: company._id,
-      description: 'Manages technology infrastructure and software development'
-    });
-
-    const salesDept = await Department.create({
-      name: 'Sales',
-      company: company._id,
-      description: 'Responsible for business development and client acquisition'
-    });
-
-    const financeDept = await Department.create({
-      name: 'Finance',
-      company: company._id,
-      description: 'Manages company finances and accounting'
-    });
-
-    console.log('📊 Departments created');
-
-    // Create admin user
-    const admin = await User.create({
-      employeeId: 'ADM001',
-      email: 'admin@company.com',
-      password: 'password123',
-      firstName: 'System',
-      lastName: 'Administrator',
-      role: 'admin',
-      company: company._id,
-      department: hrDept._id,
-      position: 'System Administrator',
-      phone: '+1 (555) 111-0001',
-      leaveBalance: {
-        sick: 15,
-        vacation: 30,
-        personal: 10
+    const departments = {};
+    
+    for (const deptData of departmentsData) {
+      let department = await Department.findOne({ 
+        name: deptData.name,
+        company: company._id 
+      });
+      
+      if (!department) {
+        department = await Department.create({
+          ...deptData,
+          company: company._id
+        });
+        console.log(`✅ Created department: ${deptData.name}`);
+      } else {
+        console.log(`ℹ️  Department already exists: ${deptData.name}`);
       }
-    });
+      
+      departments[deptData.name.replace(/\s+/g, '').toLowerCase()] = department;
+    }
 
-    // Create manager users
-    const hrManager = await User.create({
-      employeeId: 'MGR001',
-      email: 'hr.manager@company.com',
-      password: 'password123',
-      firstName: 'Sarah',
-      lastName: 'Johnson',
-      role: 'manager',
-      company: company._id,
-      department: hrDept._id,
-      position: 'HR Manager',
-      phone: '+1 (555) 111-0002',
-      leaveBalance: {
-        sick: 15,
-        vacation: 25,
-        personal: 8
+    // Create or update users
+    console.log('👥 Setting up users...');
+
+    const usersData = [
+      // Admin user
+      {
+        employeeId: 'ADM001',
+        email: 'admin@eskilzcollege.co.za',
+        password: 'admin123',
+        firstName: 'System',
+        lastName: 'Administrator',
+        role: 'admin',
+        department: departments.humanresources._id,
+        position: 'System Administrator',
+        phone: '+27 10 030 0080',
+        leaveBalance: { sick: 15, vacation: 30, personal: 10 }
+      },
+      // HR Manager
+      {
+        employeeId: 'MGR001',
+        email: 'hr@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'Sarah',
+        lastName: 'Johnson',
+        role: 'manager',
+        department: departments.humanresources._id,
+        position: 'HR Manager',
+        phone: '+27 11 222 3333',
+        leaveBalance: { sick: 15, vacation: 25, personal: 8 }
+      },
+      // IT Manager
+      {
+        employeeId: 'MGR002',
+        email: 'it@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'Michael',
+        lastName: 'Chen',
+        role: 'manager',
+        department: departments.itdepartment._id,
+        position: 'IT Manager',
+        phone: '+27 11 222 3334',
+        leaveBalance: { sick: 15, vacation: 25, personal: 8 }
+      },
+      // Academic Manager
+      {
+        employeeId: 'MGR003',
+        email: 'academic@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'David',
+        lastName: 'Wilson',
+        role: 'manager',
+        department: departments.academic._id,
+        position: 'Academic Manager',
+        phone: '+27 11 222 3335',
+        leaveBalance: { sick: 15, vacation: 25, personal: 8 }
+      },
+      // Employee users
+      {
+        employeeId: 'EMP001',
+        email: 'john.doe@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+        role: 'employee',
+        department: departments.itdepartment._id,
+        position: 'Software Developer',
+        phone: '+27 11 222 3336',
+        leaveBalance: { sick: 12, vacation: 21, personal: 5 }
+      },
+      {
+        employeeId: 'EMP002',
+        email: 'jane.smith@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'Jane',
+        lastName: 'Smith',
+        role: 'employee',
+        department: departments.sales._id,
+        position: 'Sales Executive',
+        phone: '+27 11 222 3337',
+        leaveBalance: { sick: 12, vacation: 21, personal: 5 }
+      },
+      {
+        employeeId: 'EMP003',
+        email: 'robert.wilson@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'Robert',
+        lastName: 'Wilson',
+        role: 'employee',
+        department: departments.finance._id,
+        position: 'Financial Analyst',
+        phone: '+27 11 222 3338',
+        leaveBalance: { sick: 12, vacation: 21, personal: 5 }
+      },
+      {
+        employeeId: 'EMP004',
+        email: 'linda.brown@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'Linda',
+        lastName: 'Brown',
+        role: 'employee',
+        department: departments.academic._id,
+        position: 'Lecturer',
+        phone: '+27 11 222 3339',
+        leaveBalance: { sick: 12, vacation: 21, personal: 5 }
+      },
+      {
+        employeeId: 'EMP005',
+        email: 'james.miller@eskilzcollege.co.za',
+        password: 'password123',
+        firstName: 'James',
+        lastName: 'Miller',
+        role: 'employee',
+        department: departments.administration._id,
+        position: 'Administrative Assistant',
+        phone: '+27 11 222 3340',
+        leaveBalance: { sick: 12, vacation: 21, personal: 5 }
       }
-    });
+    ];
 
-    const itManager = await User.create({
-      employeeId: 'MGR002',
-      email: 'it.manager@company.com',
-      password: 'password123',
-      firstName: 'Michael',
-      lastName: 'Chen',
-      role: 'manager',
-      company: company._id,
-      department: itDept._id,
-      position: 'IT Manager',
-      phone: '+1 (555) 111-0003',
-      leaveBalance: {
-        sick: 15,
-        vacation: 25,
-        personal: 8
+    for (const userData of usersData) {
+      let user = await User.findOne({ 
+        email: userData.email,
+        company: company._id 
+      });
+
+      if (user) {
+        // Update existing user
+        user.firstName = userData.firstName;
+        user.lastName = userData.lastName;
+        user.role = userData.role;
+        user.department = userData.department;
+        user.position = userData.position;
+        user.phone = userData.phone;
+        user.leaveBalance = userData.leaveBalance;
+        
+        // Only update password if provided and different
+        if (userData.password && !user.comparePassword(userData.password)) {
+          user.password = userData.password;
+        }
+        
+        await user.save();
+        console.log(`✅ Updated user: ${userData.email}`);
+      } else {
+        // Create new user
+        user = await User.create({
+          ...userData,
+          company: company._id
+        });
+        console.log(`✅ Created user: ${userData.email}`);
       }
-    });
+    }
 
-    // Set department managers
-    hrDept.manager = hrManager._id;
-    itDept.manager = itManager._id;
-    await hrDept.save();
-    await itDept.save();
+    // Update department managers
+    console.log('👨‍💼 Assigning department managers...');
+    
+    const hrManager = await User.findOne({ email: 'hr@eskilzcollege.co.za' });
+    const itManager = await User.findOne({ email: 'it@eskilzcollege.co.za' });
+    const academicManager = await User.findOne({ email: 'academic@eskilzcollege.co.za' });
+    
+    if (hrManager) {
+      departments.humanresources.manager = hrManager._id;
+      await departments.humanresources.save();
+    }
+    
+    if (itManager) {
+      departments.itdepartment.manager = itManager._id;
+      await departments.itdepartment.save();
+    }
+    
+    if (academicManager) {
+      departments.academic.manager = academicManager._id;
+      await departments.academic.save();
+    }
 
-    // Create employee users
-    const employee1 = await User.create({
-      employeeId: 'EMP001',
-      email: 'employee@company.com',
-      password: 'password123',
-      firstName: 'John',
-      lastName: 'Doe',
-      role: 'employee',
-      company: company._id,
-      department: itDept._id,
-      position: 'Software Developer',
-      phone: '+1 (555) 111-0004',
-      leaveBalance: {
-        sick: 12,
-        vacation: 21,
-        personal: 5
-      }
-    });
+    console.log('✅ Department managers assigned');
 
-    const employee2 = await User.create({
-      employeeId: 'EMP002',
-      email: 'jane.smith@company.com',
-      password: 'password123',
-      firstName: 'Jane',
-      lastName: 'Smith',
-      role: 'employee',
-      company: company._id,
-      department: salesDept._id,
-      position: 'Sales Executive',
-      phone: '+1 (555) 111-0005',
-      leaveBalance: {
-        sick: 12,
-        vacation: 21,
-        personal: 5
-      }
-    });
+    // Update employee counts
+    console.log('📊 Updating employee counts...');
+    
+    for (const department of Object.values(departments)) {
+      await department.updateEmployeeCount();
+    }
 
-    const employee3 = await User.create({
-      employeeId: 'EMP003',
-      email: 'robert.wilson@company.com',
-      password: 'password123',
-      firstName: 'Robert',
-      lastName: 'Wilson',
-      role: 'employee',
-      company: company._id,
-      department: financeDept._id,
-      position: 'Financial Analyst',
-      phone: '+1 (555) 111-0006',
-      leaveBalance: {
-        sick: 12,
-        vacation: 21,
-        personal: 5
-      }
-    });
+    console.log('✅ Employee counts updated');
 
-    console.log('👥 Users created');
-
-    console.log('\n✅ Sample data created successfully!');
+    console.log('\n🎉 Sample data setup completed successfully!');
     console.log('\n📋 Login Credentials:');
     console.log('=====================');
     console.log('Admin:');
-    console.log('  Email: admin@company.com');
-    console.log('  Password: password123');
+    console.log('  Email: admin@eskilzcollege.co.za');
+    console.log('  Password: admin123');
     console.log('\nManagers:');
-    console.log('  HR Manager: hr.manager@company.com / password123');
-    console.log('  IT Manager: it.manager@company.com / password123');
+    console.log('  HR Manager: hr@eskilzcollege.co.za / password123');
+    console.log('  IT Manager: it@eskilzcollege.co.za / password123');
+    console.log('  Academic Manager: academic@eskilzcollege.co.za / password123');
     console.log('\nEmployees:');
-    console.log('  Employee 1: employee@company.com / password123');
-    console.log('  Employee 2: jane.smith@company.com / password123');
-    console.log('  Employee 3: robert.wilson@company.com / password123');
+    console.log('  John Doe: john.doe@eskilzcollege.co.za / password123');
+    console.log('  Jane Smith: jane.smith@eskilzcollege.co.za / password123');
+    console.log('  Robert Wilson: robert.wilson@eskilzcollege.co.za / password123');
+    console.log('  Linda Brown: linda.brown@eskilzcollege.co.za / password123');
+    console.log('  James Miller: james.miller@eskilzcollege.co.za / password123');
+
+    console.log('\n📍 Company Location:');
+    console.log('  Address: 267 Market Street, Witkoppen Rd, Noordhang, Randburg, 2188');
+    console.log('  Coordinates: -26.038123, 27.968089');
+    console.log('  Check-in Radius: 50 meters');
 
     process.exit(0);
   } catch (error) {
@@ -207,5 +330,18 @@ const seedData = async () => {
     process.exit(1);
   }
 };
+
+// Handle script termination
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Script terminated by user');
+  await mongoose.connection.close();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Script terminated');
+  await mongoose.connection.close();
+  process.exit(0);
+});
 
 seedData();

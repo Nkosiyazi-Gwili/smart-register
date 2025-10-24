@@ -60,7 +60,45 @@ app.get('/', (req, res) => {
     environment: process.env.NODE_ENV
   });
 });
-
+// Add this to your auth routes
+router.get('/health-check', async (req, res) => {
+  try {
+    console.log('🏥 Health check called');
+    
+    // Test database connection by counting users
+    const userCount = await User.countDocuments();
+    console.log('📊 User count:', userCount);
+    
+    // Test if we can find the admin user
+    const adminUser = await User.findOne({ email: 'admin@eskilzcollege.co.za' });
+    console.log('👤 Admin user exists:', !!adminUser);
+    
+    if (adminUser) {
+      console.log('📧 Admin email:', adminUser.email);
+      console.log('🔐 Admin password hash exists:', !!adminUser.password);
+      console.log('📏 Password hash length:', adminUser.password?.length);
+      console.log('🔑 Password hash prefix:', adminUser.password?.substring(0, 30) + '...');
+    }
+    
+    res.json({
+      success: true,
+      database: 'Connected',
+      userCount,
+      adminUserExists: !!adminUser,
+      adminUserEmail: adminUser?.email,
+      adminUserStatus: adminUser?.status,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('💥 Health check error:', error);
+    res.json({
+      success: false,
+      database: 'Error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 // Health endpoint
 app.get('/api/health', (req, res) => {
   res.json({ 

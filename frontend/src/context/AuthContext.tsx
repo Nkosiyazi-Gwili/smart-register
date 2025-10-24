@@ -2,7 +2,7 @@
 import { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 
-// Use environment variable with fallback for development
+// CORRECT: Include /api in the base URL
 axios.defaults.baseURL = process.env.NEXT_PUBLIC_API_URL || 'https://smart-register-backend.vercel.app/api';
 
 interface User {
@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = localStorage.getItem('token');
       if (token) {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        const response = await axios.get('/auth/me'); // Use relative URL
+        const response = await axios.get('/auth/me'); // This will now be /api/auth/me
         setUser(response.data.user);
       }
     } catch (error) {
@@ -59,19 +59,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (email: string, password: string): Promise<User> => {
-    const response = await axios.post('/auth/login', { // Use relative URL
-      email, 
-      password 
-    });
+  try {
+    console.log('🔐 Making login request with fetch...');
     
-    const { token, user: userData } = response.data;
+    const response = await fetch('https://smart-register-backend.vercel.app/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    console.log('📨 Response status:', response.status);
+    console.log('📨 Response headers:', Object.fromEntries(response.headers.entries()));
+    
+    const data = await response.json();
+    console.log('📨 Response data:', data);
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Login failed');
+    }
+
+    const { token, user: userData } = data;
     
     localStorage.setItem('token', token);
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     setUser(userData);
     
     return userData;
-  };
+  } catch (error: any) {
+    console.error('Login error:', error);
+    throw new Error(error.message || 'Login failed');
+  }
+};
 
   const logout = () => {
     localStorage.removeItem('token');

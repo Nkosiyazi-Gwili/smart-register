@@ -1,80 +1,84 @@
+// routes/companies.js
 const express = require('express');
 const Company = require('../models/Company');
-const { auth, requireRole } = require('../middleware/auth');
-
+const { adminAuth } = require('../middleware/auth');
 const router = express.Router();
 
-// @desc    Get company details
-// @route   GET /api/company
-// @access  Private
-router.get('/', auth, async (req, res) => {
+// Get company settings
+router.get('/', adminAuth, async (req, res) => {
   try {
     const company = await Company.findById(req.user.company);
     
     if (!company) {
-      return res.status(404).json({ error: 'Company not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Company not found'
+      });
     }
-
+    
     res.json({
       success: true,
       company
     });
+    
   } catch (error) {
     console.error('Get company error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// @desc    Update company settings
-// @route   PUT /api/company/settings
-// @access  Private (Admin)
-router.put('/settings', auth, requireRole(['admin']), async (req, res) => {
-  try {
-    const { settings } = req.body;
-    
-    const company = await Company.findByIdAndUpdate(
-      req.user.company,
-      { settings },
-      { new: true, runValidators: true }
-    );
-
-    res.json({
-      success: true,
-      company,
-      message: 'Company settings updated successfully'
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching company settings'
     });
-  } catch (error) {
-    console.error('Update company settings error:', error);
-    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// @desc    Add company location
-// @route   POST /api/company/locations
-// @access  Private (Admin)
-router.post('/locations', auth, requireRole(['admin']), async (req, res) => {
+// Update company settings
+router.put('/', adminAuth, async (req, res) => {
   try {
-    const { name, address, latitude, longitude, radius } = req.body;
+    const {
+      name,
+      address,
+      latitude,
+      longitude,
+      radius,
+      contactEmail,
+      contactPhone,
+      workingHours,
+      settings
+    } = req.body;
     
     const company = await Company.findById(req.user.company);
     
-    company.locations.push({
-      name,
-      address,
-      coordinates: { latitude, longitude },
-      radius: radius || 100
-    });
-
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: 'Company not found'
+      });
+    }
+    
+    // Update fields
+    if (name) company.name = name;
+    if (address) company.address = address;
+    if (latitude !== undefined) company.latitude = latitude;
+    if (longitude !== undefined) company.longitude = longitude;
+    if (radius !== undefined) company.radius = radius;
+    if (contactEmail) company.contactEmail = contactEmail;
+    if (contactPhone) company.contactPhone = contactPhone;
+    if (workingHours) company.workingHours = workingHours;
+    if (settings) company.settings = { ...company.settings, ...settings };
+    
     await company.save();
-
+    
     res.json({
       success: true,
-      company,
-      message: 'Location added successfully'
+      message: 'Company settings updated successfully',
+      company
     });
+    
   } catch (error) {
-    console.error('Add location error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Update company error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating company settings'
+    });
   }
 });
 

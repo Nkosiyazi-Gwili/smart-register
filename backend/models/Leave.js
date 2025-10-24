@@ -1,3 +1,4 @@
+// models/Leave.js
 const mongoose = require('mongoose');
 
 const leaveSchema = new mongoose.Schema({
@@ -11,7 +12,7 @@ const leaveSchema = new mongoose.Schema({
     ref: 'Company', 
     required: true 
   },
-  type: { 
+  leaveType: { 
     type: String, 
     enum: ['sick', 'vacation', 'personal', 'maternity', 'paternity'],
     required: true 
@@ -39,7 +40,8 @@ const leaveSchema = new mongoose.Schema({
     name: String,
     url: String,
     uploadedAt: { type: Date, default: Date.now }
-  }]
+  }],
+  appliedAt: { type: Date, default: Date.now }
 }, { 
   timestamps: true 
 });
@@ -51,7 +53,7 @@ leaveSchema.index({ startDate: 1, endDate: 1 });
 leaveSchema.index({ status: 1, createdAt: 1 });
 
 // Virtual for calculating leave duration
-leaveSchema.virtual('duration').get(function() {
+leaveSchema.virtual('totalDays').get(function() {
   const ms = this.endDate - this.startDate;
   return Math.ceil(ms / (1000 * 60 * 60 * 24)) + 1; // Include both start and end dates
 });

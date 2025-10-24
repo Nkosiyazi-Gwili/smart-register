@@ -10,6 +10,7 @@ import Reports from './Reports';
 import UserManagement from './admin/UserManagement';
 import CompanySettings from './admin/CompanySettings';
 import DepartmentManagement from './admin/DepartmentManagement';
+import LeaveManagement from './admin/LeaveManagement';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -26,30 +27,46 @@ export default function Dashboard() {
 
   if (!user) return null;
 
-  // Base tabs for all users
-  const baseTabs = [
+  // Base tabs for all users (employees)
+  const employeeTabs = [
     { id: 'overview', name: 'Overview', icon: '📊' },
     { id: 'attendance', name: 'Attendance', icon: '⏰' },
-    { id: 'leave', name: 'Leave', icon: '🏖️' },
+    { id: 'leave', name: 'My Leave', icon: '🏖️' },
   ];
 
-  // Manager tabs
+  // Manager tabs - can manage team leaves
   const managerTabs = [
-    ...baseTabs,
+    { id: 'overview', name: 'Overview', icon: '📊' },
+    { id: 'attendance', name: 'Attendance', icon: '⏰' },
+    { id: 'leave', name: 'My Leave', icon: '🏖️' },
+    { id: 'leave-management', name: 'Team Leaves', icon: '📋' },
     { id: 'reports', name: 'Reports', icon: '📈' },
   ];
 
-  // Admin tabs
+  // Admin tabs - full access
   const adminTabs = [
-    ...baseTabs,
-    { id: 'reports', name: 'Reports', icon: '📈' },
+    { id: 'overview', name: 'Overview', icon: '📊' },
+    { id: 'attendance', name: 'Attendance', icon: '⏰' },
+    { id: 'leave', name: 'My Leave', icon: '🏖️' },
+    { id: 'leave-management', name: 'All Leaves', icon: '📋' },
     { id: 'users', name: 'Users', icon: '👥' },
     { id: 'departments', name: 'Departments', icon: '🏢' },
+    { id: 'reports', name: 'Reports', icon: '📈' },
     { id: 'company', name: 'Company', icon: '⚙️' },
   ];
 
-  const tabs = user.role === 'admin' ? adminTabs : 
-               user.role === 'manager' ? managerTabs : baseTabs;
+  const getTabs = () => {
+    switch (user.role) {
+      case 'admin':
+        return adminTabs;
+      case 'manager':
+        return managerTabs;
+      default:
+        return employeeTabs;
+    }
+  };
+
+  const tabs = getTabs();
 
   const renderContent = () => {
     switch (activeTab) {
@@ -57,8 +74,16 @@ export default function Dashboard() {
         return <AttendanceClock />;
       case 'leave':
         return <LeaveApplication />;
+      case 'leave-management':
+        if (user.role === 'admin' || user.role === 'manager') {
+          return <LeaveManagement />;
+        }
+        return null;
       case 'reports':
-        return <Reports />;
+        if (user.role === 'admin' || user.role === 'manager') {
+          return <Reports />;
+        }
+        return null;
       case 'users':
         return user.role === 'admin' ? <UserManagement /> : null;
       case 'departments':
