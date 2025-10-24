@@ -1,8 +1,9 @@
+// routes/leave.js
 const express = require('express');
 const Leave = require('../models/Leave');
 const User = require('../models/User');
 const { auth, requireRole } = require('../middleware/auth');
-const { leaveValidation } = require('../middleware/validation');
+const { leaveValidation } = require('../middleware/validation'); // Use express-validator version
 const { sendEmail } = require('../config/email');
 
 const router = express.Router();
@@ -12,7 +13,7 @@ const router = express.Router();
 // @access  Private
 router.post('/apply', auth, leaveValidation, async (req, res) => {
   try {
-    const { type, startDate, endDate, reason, emergencyContact } = req.body;
+    const { leaveType, startDate, endDate, reason, emergencyContact } = req.body;
     const user = req.user;
 
     // Check for overlapping leaves
@@ -30,16 +31,16 @@ router.post('/apply', auth, leaveValidation, async (req, res) => {
 
     // Check leave balance
     const duration = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) + 1;
-    if (user.leaveBalance[type] < duration) {
+    if (user.leaveBalance[leaveType] < duration) {
       return res.status(400).json({ 
-        error: `Insufficient ${type} leave balance. Available: ${user.leaveBalance[type]} days, Required: ${duration} days` 
+        error: `Insufficient ${leaveType} leave balance. Available: ${user.leaveBalance[leaveType]} days, Required: ${duration} days` 
       });
     }
 
     const leave = new Leave({
       user: user._id,
       company: user.company,
-      type,
+      leaveType,
       startDate,
       endDate,
       reason,
@@ -60,7 +61,7 @@ router.post('/apply', auth, leaveValidation, async (req, res) => {
           `
             <h2>New Leave Application</h2>
             <p><strong>Employee:</strong> ${leave.user.firstName} ${leave.user.lastName}</p>
-            <p><strong>Type:</strong> ${type}</p>
+            <p><strong>Type:</strong> ${leaveType}</p>
             <p><strong>Period:</strong> ${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}</p>
             <p><strong>Reason:</strong> ${reason}</p>
             <p>Please review and take appropriate action.</p>
@@ -122,6 +123,42 @@ router.get('/my-leaves', auth, async (req, res) => {
   }
 });
 
+// @desc    Get all leaves for admin
+// @route   GET /api/leave
+// @access  Private (Admin)
+router.get('/', auth, requireRole(['admin']), async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+
+    const query = { company: req.user.company };
+    
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    const leaveApplications = await Leave.find(query)
+      .populate('user', 'firstName lastName employeeId department')
+      .populate('user.department', 'name')
+      .populate('approvedBy', 'firstName lastName')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Leave.countDocuments(query);
+
+    res.json({
+      success: true,
+      leaveApplications,
+      totalPages: Math.ceil(total / limit),
+      currentPage: parseInt(page),
+      total
+    });
+  } catch (error) {
+    console.error('Get all leaves error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // @desc    Get pending leaves for approval (Managers/Admin)
 // @route   GET /api/leave/pending
 // @access  Private (Admin/Manager)
@@ -170,12 +207,11 @@ router.get('/pending', auth, requireRole(['admin', 'manager']), async (req, res)
   }
 });
 
-// @desc    Approve/Reject leave
-// @route   PUT /api/leave/:id/action
+// @desc    Approve leave
+// @route   PUT /api/leave/:id/approve
 // @access  Private (Admin/Manager)
-router.put('/:id/action', auth, requireRole(['admin', 'manager']), async (req, res) => {
+router.put('/:id/approve', auth, requireRole(['admin', 'manager']), async (req, res) => {
   try {
-    const { status, rejectionReason } = req.body;
     const user = req.user;
 
     const leave = await Leave.findById(req.params.id)
@@ -197,34 +233,28 @@ router.put('/:id/action', auth, requireRole(['admin', 'manager']), async (req, r
       return res.status(400).json({ error: 'Leave has already been processed' });
     }
 
-    leave.status = status;
+    leave.status = 'approved';
     leave.approvedBy = user._id;
     leave.approvedAt = new Date();
     
-    if (status === 'rejected' && rejectionReason) {
-      leave.rejectionReason = rejectionReason;
-    }
-
     await leave.save();
 
     // Update leave balance if approved
-    if (status === 'approved') {
-      const duration = leave.duration;
-      const userToUpdate = await User.findById(leave.user);
-      userToUpdate.leaveBalance[leave.type] -= duration;
-      await userToUpdate.save();
-    }
+    const duration = leave.duration;
+    const userToUpdate = await User.findById(leave.user);
+    userToUpdate.leaveBalance[leave.leaveType] -= duration;
+    await userToUpdate.save();
 
     // Notify employee
     await sendEmail(
       leave.user.email,
-      `Leave Application ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      'Leave Application Approved',
       `
-        <h2>Leave Application Update</h2>
-        <p>Your leave application has been <strong>${status}</strong>.</p>
-        <p><strong>Type:</strong> ${leave.type}</p>
+        <h2>Leave Application Approved</h2>
+        <p>Your leave application has been <strong>approved</strong>.</p>
+        <p><strong>Type:</strong> ${leave.leaveType}</p>
         <p><strong>Period:</strong> ${leave.startDate.toLocaleDateString()} - ${leave.endDate.toLocaleDateString()}</p>
-        ${rejectionReason ? `<p><strong>Reason for rejection:</strong> ${rejectionReason}</p>` : ''}
+        <p><strong>Total Days:</strong> ${duration}</p>
         <p>If you have any questions, please contact HR.</p>
       `
     );
@@ -232,10 +262,69 @@ router.put('/:id/action', auth, requireRole(['admin', 'manager']), async (req, r
     res.json({
       success: true,
       leave,
-      message: `Leave ${status} successfully`
+      message: 'Leave approved successfully'
     });
   } catch (error) {
-    console.error('Leave action error:', error);
+    console.error('Leave approve error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// @desc    Reject leave
+// @route   PUT /api/leave/:id/reject
+// @access  Private (Admin/Manager)
+router.put('/:id/reject', auth, requireRole(['admin', 'manager']), async (req, res) => {
+  try {
+    const { rejectionReason } = req.body;
+    const user = req.user;
+
+    const leave = await Leave.findById(req.params.id)
+      .populate('user', 'firstName lastName email');
+
+    if (!leave) {
+      return res.status(404).json({ error: 'Leave not found' });
+    }
+
+    // Check if user has permission to reject this leave
+    if (user.role === 'manager') {
+      const employee = await User.findById(leave.user).populate('department');
+      if (employee.department.manager?.toString() !== user._id.toString()) {
+        return res.status(403).json({ error: 'You can only reject leaves from your department' });
+      }
+    }
+
+    if (leave.status !== 'pending') {
+      return res.status(400).json({ error: 'Leave has already been processed' });
+    }
+
+    leave.status = 'rejected';
+    leave.approvedBy = user._id;
+    leave.approvedAt = new Date();
+    leave.rejectionReason = rejectionReason;
+    
+    await leave.save();
+
+    // Notify employee
+    await sendEmail(
+      leave.user.email,
+      'Leave Application Rejected',
+      `
+        <h2>Leave Application Rejected</h2>
+        <p>Your leave application has been <strong>rejected</strong>.</p>
+        <p><strong>Type:</strong> ${leave.leaveType}</p>
+        <p><strong>Period:</strong> ${leave.startDate.toLocaleDateString()} - ${leave.endDate.toLocaleDateString()}</p>
+        <p><strong>Reason for rejection:</strong> ${rejectionReason}</p>
+        <p>If you have any questions, please contact HR.</p>
+      `
+    );
+
+    res.json({
+      success: true,
+      leave,
+      message: 'Leave rejected successfully'
+    });
+  } catch (error) {
+    console.error('Leave reject error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });

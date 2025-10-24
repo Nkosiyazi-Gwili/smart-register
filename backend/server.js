@@ -47,7 +47,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/company', companyRoutes);
-app.use('/api/department', departmentRoutes);
+app.use('/api/departments', departmentRoutes);
 app.use('/api/users', userRoutes);
 
 // Root endpoint

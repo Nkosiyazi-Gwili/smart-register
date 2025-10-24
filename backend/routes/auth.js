@@ -1,40 +1,36 @@
 // routes/auth.js
 const express = require('express');
-const router = express.Router();
-const { auth } = require('../middleware/auth');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken'); // ADD THIS IMPORT
 const User = require('../models/User');
+const { loginValidation } = require('../middleware/validation');
 
-// Login
-// routes/auth.js - Replace your login route with this
-router.post('/login', async (req, res) => {
+const router = express.Router();
+
+// @desc    Login user
+// @route   POST /api/auth/login
+// @access  Public
+router.post('/login', loginValidation, async (req, res) => {
   try {
     const { email, password } = req.body;
 
     console.log('🔐 ===== LOGIN ATTEMPT =====');
     console.log('📧 Email received:', email);
-    console.log('🔑 Password received length:', password ? password.length : 'none');
-    console.log('🌐 Request origin:', req.headers.origin);
-    console.log('📱 User agent:', req.headers['user-agent']);
-
-    if (!email || !password) {
-      console.log('❌ Missing email or password');
-      return res.status(400).json({
-        success: false,
-        message: 'Email and password are required'
-      });
-    }
+    console.log('🔑 Password received length:', password?.length);
+    console.log('🌐 Request origin:', req.get('origin'));
+    console.log('📱 User agent:', req.get('user-agent'));
 
     // Find user
     console.log('🔍 Searching for user in database...');
-    const user = await User.findOne({ email: email.toLowerCase().trim() })
-      .populate('department')
-      .populate('company');
+    const user = await User.findOne({ email })
+      .populate('company')
+      .populate('department');
 
     if (!user) {
-      console.log('❌ USER NOT FOUND in database for email:', email);
-      return res.status(401).json({
+      console.log('❌ USER NOT FOUND');
+      return res.status(400).json({ 
         success: false,
-        message: 'Invalid credentials'
+        error: 'Invalid credentials' 
       });
     }
 
@@ -51,17 +47,16 @@ router.post('/login', async (req, res) => {
     // Check password
     console.log('🔑 Comparing passwords...');
     console.log('   Input password:', password);
-    console.log('   Stored hash:', user.password.substring(0, 30) + '...');
+    console.log('   Stored hash:', user.password?.substring(0, 25) + '...');
     
     const isMatch = await user.comparePassword(password);
     console.log('🔑 Password comparison result:', isMatch);
 
     if (!isMatch) {
       console.log('❌ PASSWORD MISMATCH');
-      console.log('   This means the password provided does not match the hash in database');
-      return res.status(401).json({
+      return res.status(400).json({ 
         success: false,
-        message: 'Invalid credentials'
+        error: 'Invalid credentials' 
       });
     }
 
@@ -69,29 +64,31 @@ router.post('/login', async (req, res) => {
 
     // Check if user is active
     if (user.status !== 'active') {
-      console.log('❌ User account is not active. Status:', user.status);
-      return res.status(401).json({
+      console.log('❌ ACCOUNT INACTIVE - Status:', user.status);
+      return res.status(400).json({ 
         success: false,
-        message: 'Account is inactive'
+        error: `Account is ${user.status}` 
       });
     }
 
     console.log('✅ ACCOUNT IS ACTIVE');
 
+    // Generate token
+    console.log('🎫 Generating JWT token...');
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || 'your-fallback-secret-key-change-in-production',
+      { expiresIn: '7d' }
+    );
+
+    console.log('✅ TOKEN GENERATED');
+
     // Update last login
     user.lastLogin = new Date();
     await user.save();
 
-    // Generate token
-    const token = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '7d' }
-    );
-
-    console.log('🎉 LOGIN SUCCESSFUL for:', user.email);
-    console.log('🔐 Token generated');
-    console.log('===== LOGIN COMPLETE =====\n');
+    console.log('📅 Last login updated');
+    console.log('✅ LOGIN SUCCESSFUL');
 
     res.json({
       success: true,
@@ -107,80 +104,59 @@ router.post('/login', async (req, res) => {
         company: user.company,
         position: user.position,
         phone: user.phone,
-        leaveBalance: user.leaveBalance
+        leaveBalance: user.leaveBalance,
+        status: user.status,
+        lastLogin: user.lastLogin
       }
     });
-
   } catch (error) {
-    console.error('💥 LOGIN ERROR:', error);
+    console.error('💥 LOGIN ERROR:', error.message);
     console.error('💥 Error stack:', error.stack);
-    res.status(500).json({
+    res.status(500).json({ 
       success: false,
-      message: 'Server error during login'
+      error: 'Server error during login' 
     });
   }
 });
-// Add this to your auth routes for quick testing
-router.post('/test-simple', async (req, res) => {
-  console.log('🧪 SIMPLE TEST ENDPOINT HIT');
-  console.log('📧 Email received:', req.body.email);
-  console.log('🔑 Password received:', req.body.password ? '***' : 'none');
-  
-  res.json({
-    success: true,
-    received: {
-      email: req.body.email,
-      passwordLength: req.body.password ? req.body.password.length : 0
-    },
-    message: 'Test endpoint working'
-  });
-});
 
-// Get current user
-router.get('/me', auth, async (req, res) => {
-    try {
-      // The user is already attached to req by the auth middleware
-      res.json({
-        success: true,
-        user: {
-          id: req.user._id,
-          employeeId: req.user.employeeId,
-          email: req.user.email,
-          firstName: req.user.firstName,
-          lastName: req.user.lastName,
-          role: req.user.role,
-          department: req.user.department,
-          company: req.user.company,
-          position: req.user.position,
-          phone: req.user.phone,
-          leaveBalance: req.user.leaveBalance,
-          status: req.user.status, // Make sure this is included
-          lastLogin: req.user.lastLogin
-        }
-      });
-    } catch (error) {
-      console.error('Get user error:', error);
-      res.status(500).json({ success: false, error: 'Server error' });
-    }
-  });
-
-// Update profile
-router.put('/profile', auth, async (req, res) => {
+// @desc    Get current user
+// @route   GET /api/auth/me
+// @access  Private
+router.get('/me', async (req, res) => {
   try {
-    const { firstName, lastName, phone, position } = req.body;
+    const token = req.header('Authorization')?.replace('Bearer ', '');
     
-    const user = await User.findById(req.user._id);
+    if (!token) {
+      return res.status(401).json({ 
+        success: false,
+        error: 'No token, authorization denied' 
+      });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-fallback-secret-key-change-in-production');
     
-    if (firstName) user.firstName = firstName;
-    if (lastName) user.lastName = lastName;
-    if (phone) user.phone = phone;
-    if (position) user.position = position;
-    
-    await user.save();
-    
+    const user = await User.findById(decoded.userId)
+      .populate('company')
+      .populate('department')
+      .select('-password');
+
+    if (!user) {
+      return res.status(401).json({ 
+        success: false,
+        error: 'Token is not valid' 
+      });
+    }
+
+    if (user.status !== 'active') {
+      return res.status(401).json({ 
+        success: false,
+        error: `Account is ${user.status}` 
+      });
+    }
+
     res.json({
       success: true,
-      message: 'Profile updated successfully',
       user: {
         id: user._id,
         employeeId: user.employeeId,
@@ -192,17 +168,44 @@ router.put('/profile', auth, async (req, res) => {
         company: user.company,
         position: user.position,
         phone: user.phone,
-        leaveBalance: user.leaveBalance
+        leaveBalance: user.leaveBalance,
+        status: user.status,
+        lastLogin: user.lastLogin
       }
     });
-    
   } catch (error) {
-    console.error('Update profile error:', error);
-    res.status(500).json({
+    console.error('Get user error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ 
+        success: false,
+        error: 'Token is not valid' 
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        success: false,
+        error: 'Token has expired' 
+      });
+    }
+    
+    res.status(500).json({ 
       success: false,
-      message: 'Error updating profile'
+      error: 'Server error' 
     });
   }
+});
+
+// @desc    Logout user (client-side token removal)
+// @route   POST /api/auth/logout
+// @access  Private
+router.post('/logout', (req, res) => {
+  // Since JWT is stateless, logout is handled client-side by removing the token
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
+  });
 });
 
 module.exports = router;

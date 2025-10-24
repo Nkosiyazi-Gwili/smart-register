@@ -36,6 +36,9 @@ const defaultWorkingHours = {
   end: '17:00'
 };
 
+// API configuration for local development
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+
 export default function CompanySettings() {
   const { user, updateUser } = useAuth();
   const { addToast } = useToast();
@@ -61,7 +64,7 @@ export default function CompanySettings() {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      const response = await fetch('/api/companies', {
+      const response = await fetch(`${API_BASE_URL}/company`, { // Fixed: /api/company -> /company
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -148,7 +151,7 @@ export default function CompanySettings() {
         return;
       }
 
-      const response = await fetch('/api/companies', {
+      const response = await fetch(`${API_BASE_URL}/company`, { // Fixed: /api/company -> /company
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,

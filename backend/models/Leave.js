@@ -1,5 +1,5 @@
 // models/Leave.js
-const mongoose = require('mongoose');
+const mongoose = require('mongoose'); // ADD THIS LINE
 
 const leaveSchema = new mongoose.Schema({
   user: { 
@@ -53,7 +53,7 @@ leaveSchema.index({ startDate: 1, endDate: 1 });
 leaveSchema.index({ status: 1, createdAt: 1 });
 
 // Virtual for calculating leave duration
-leaveSchema.virtual('totalDays').get(function() {
+leaveSchema.virtual('duration').get(function() {
   const ms = this.endDate - this.startDate;
   return Math.ceil(ms / (1000 * 60 * 60 * 24)) + 1; // Include both start and end dates
 });

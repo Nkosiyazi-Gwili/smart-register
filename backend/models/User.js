@@ -56,9 +56,11 @@ const userSchema = new mongoose.Schema({
     type: String
   },
   leaveBalance: {
-    sick: { type: Number, default: 12 },
-    vacation: { type: Number, default: 15 },
-    personal: { type: Number, default: 5 }
+    vacation: { type: Number, default: 0 },
+    sick: { type: Number, default: 0 },
+    personal: { type: Number, default: 0 },
+    maternity: { type: Number, default: 0 },
+    paternity: { type: Number, default: 0 }
   },
   status: {
     type: String,
