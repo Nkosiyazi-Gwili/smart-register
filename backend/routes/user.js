@@ -2,15 +2,15 @@
 const express = require('express');
 const User = require('../models/User');
 const Department = require('../models/Department');
-const { adminAuth, managerAuth } = require('../middleware/auth');
+const { auth, requireRole } = require('../middleware/auth'); // Use existing middleware
 const router = express.Router();
 
 // Get all users (Admin/Manager only)
-router.get('/', managerAuth, async (req, res) => {
+router.get('/', auth, requireRole(['admin', 'manager']), async (req, res) => {
   try {
     const { page = 1, limit = 10, department, role, status } = req.query;
     
-    const filter = {};
+    const filter = { company: req.user.company };
     if (department) filter.department = department;
     if (role) filter.role = role;
     if (status) filter.status = status;
@@ -48,7 +48,7 @@ router.get('/', managerAuth, async (req, res) => {
 });
 
 // Get user by ID
-router.get('/:id', managerAuth, async (req, res) => {
+router.get('/:id', auth, requireRole(['admin', 'manager']), async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
       .populate('department')
@@ -64,7 +64,7 @@ router.get('/:id', managerAuth, async (req, res) => {
     
     // Check if manager has access to this user
     if (req.user.role === 'manager' && 
-        user.department._id.toString() !== req.user.department._id.toString()) {
+        user.department._id.toString() !== req.user.department.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -86,7 +86,7 @@ router.get('/:id', managerAuth, async (req, res) => {
 });
 
 // Create user (Admin only)
-router.post('/', adminAuth, async (req, res) => {
+router.post('/', auth, requireRole(['admin']), async (req, res) => {
   try {
     const {
       email,
@@ -120,12 +120,12 @@ router.post('/', adminAuth, async (req, res) => {
     
     const user = new User({
       email,
-      password: password || 'defaultPassword123', // In production, generate random password
+      password: password || 'defaultPassword123',
       firstName,
       lastName,
       role: role || 'employee',
       department,
-      company: req.user.company, // Use admin's company
+      company: req.user.company,
       position,
       phone,
       leaveBalance: leaveBalance || {
@@ -168,7 +168,7 @@ router.post('/', adminAuth, async (req, res) => {
 });
 
 // Update user
-router.put('/:id', managerAuth, async (req, res) => {
+router.put('/:id', auth, requireRole(['admin', 'manager']), async (req, res) => {
   try {
     const {
       firstName,
@@ -191,7 +191,7 @@ router.put('/:id', managerAuth, async (req, res) => {
     
     // Check permissions
     if (req.user.role === 'manager') {
-      if (user.department.toString() !== req.user.department._id.toString()) {
+      if (user.department.toString() !== req.user.department.toString()) {
         return res.status(403).json({
           success: false,
           message: 'Access denied'
@@ -245,7 +245,7 @@ router.put('/:id', managerAuth, async (req, res) => {
 });
 
 // Delete user (Admin only)
-router.delete('/:id', adminAuth, async (req, res) => {
+router.delete('/:id', auth, requireRole(['admin']), async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     

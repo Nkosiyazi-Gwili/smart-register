@@ -2,11 +2,11 @@
 const express = require('express');
 const Department = require('../models/Department');
 const User = require('../models/User');
-const { adminAuth, managerAuth } = require('../middleware/auth');
+const { auth, requireRole } = require('../middleware/auth'); // Use existing middleware
 const router = express.Router();
 
-// Get all departments
-router.get('/', managerAuth, async (req, res) => {
+// Get all departments - Managers and Admins can access
+router.get('/', auth, requireRole(['admin', 'manager']), async (req, res) => {
   try {
     const departments = await Department.find({ company: req.user.company })
       .populate('manager')
@@ -26,8 +26,8 @@ router.get('/', managerAuth, async (req, res) => {
   }
 });
 
-// Get department by ID
-router.get('/:id', managerAuth, async (req, res) => {
+// Get department by ID - Managers and Admins can access
+router.get('/:id', auth, requireRole(['admin', 'manager']), async (req, res) => {
   try {
     const department = await Department.findOne({
       _id: req.params.id,
@@ -56,7 +56,7 @@ router.get('/:id', managerAuth, async (req, res) => {
 });
 
 // Create department (Admin only)
-router.post('/', adminAuth, async (req, res) => {
+router.post('/', auth, requireRole(['admin']), async (req, res) => {
   try {
     const { name, description, manager } = req.body;
     
@@ -116,7 +116,7 @@ router.post('/', adminAuth, async (req, res) => {
 });
 
 // Update department (Admin only)
-router.put('/:id', adminAuth, async (req, res) => {
+router.put('/:id', auth, requireRole(['admin']), async (req, res) => {
   try {
     const { name, description, manager, status } = req.body;
     
@@ -189,7 +189,7 @@ router.put('/:id', adminAuth, async (req, res) => {
 });
 
 // Delete department (Admin only)
-router.delete('/:id', adminAuth, async (req, res) => {
+router.delete('/:id', auth, requireRole(['admin']), async (req, res) => {
   try {
     const department = await Department.findOne({
       _id: req.params.id,

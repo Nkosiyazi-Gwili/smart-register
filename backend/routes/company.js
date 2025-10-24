@@ -1,11 +1,11 @@
 // routes/companies.js
 const express = require('express');
 const Company = require('../models/Company');
-const { adminAuth } = require('../middleware/auth');
+const { auth, requireRole } = require('../middleware/auth'); // Use existing middleware
 const router = express.Router();
 
-// Get company settings
-router.get('/', adminAuth, async (req, res) => {
+// Get company settings - Only admin can access
+router.get('/', auth, requireRole(['admin']), async (req, res) => {
   try {
     const company = await Company.findById(req.user.company);
     
@@ -30,8 +30,8 @@ router.get('/', adminAuth, async (req, res) => {
   }
 });
 
-// Update company settings
-router.put('/', adminAuth, async (req, res) => {
+// Update company settings - Only admin can access
+router.put('/', auth, requireRole(['admin']), async (req, res) => {
   try {
     const {
       name,
